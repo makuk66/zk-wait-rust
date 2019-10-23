@@ -289,26 +289,17 @@ fn get_ip_strategy_arg(arg_matches: &ArgMatches) -> IpStrategy {
 }
 
 fn get_name_arg(arg_matches: &ArgMatches) -> std::string::String {
-    let mut name = String::new();
     match arg_matches.value_of("name") {
-        Some(n) => {
-            name = n.to_string();
+        Some(name) => {
+            name.to_string()
         }
         None => {
-            for (key, value) in env::vars() {
-                if key == "ZK_HOST" {
-                    name = value.to_string();
-                }
-            }
+            env::var("ZK_HOST").unwrap_or_else(|_e| {
+                error!("You must specify a name as command-line parameter or set ZK_HOST");
+                process::exit(1);
+            })
         }
     }
-
-    if name.is_empty() {
-        error!("You must specify a name as command-line parameter or set ZK_HOST");
-        process::exit(1);
-    }
-    info!("Looking for {}", &name);
-    name
 }
 
 fn process_name(
@@ -359,6 +350,7 @@ fn main() {
     let wait_duration = get_duration_arg(&matches, "wait-seconds");
     let ip_strategy = get_ip_strategy_arg(&matches);
     let name = get_name_arg(&matches);
+    info!("Looking for {}", &name);
 
     let start_time = Instant::now();
     let mut nodes: HashMap<SocketAddr, ZooKeeperMode> = HashMap::new();
