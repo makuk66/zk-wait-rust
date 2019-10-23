@@ -1,5 +1,5 @@
 [package]
-name = "zk-rust-wait"
+name = "zk-wait-rust"
 version = "0.1.0"
 authors = ["Martijn Koster <mak-github@greenhills.co.uk>"]
 edition = "2018"
