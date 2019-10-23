@@ -79,34 +79,24 @@ fn get_zookeeper_mode(address: &SocketAddr) -> ZooKeeperMode {
     }
     // set read/write timeouts so that we don't get hung up by one stuck server
     let write_timeout = Duration::new(WRITE_TIMEOUT_SECONDS, 0);
-    match stream.set_write_timeout(Some(write_timeout)) {
-        Ok(_) => {}
-        Err(e) => {
-            error!("failed to set write timeout to {:?}: {}", &write_timeout, e);
-        }
+    if let Err(e) = stream.set_write_timeout(Some(write_timeout)) {
+        error!("failed to set write timeout to {:?}: {}", &write_timeout, e);
+        return ZooKeeperMode::Unknown;
     }
     let read_timeout = Duration::new(READ_TIMEOUT_SECONDS, 0);
-    match stream.set_read_timeout(Some(read_timeout)) {
-        Ok(_) => {}
-        Err(e) => {
-            error!("failed to set read timeout to {:?}: {}", &read_timeout, e);
-        }
+    if let Err(e) = stream.set_read_timeout(Some(read_timeout)) {
+        error!("failed to set read timeout to {:?}: {}", &read_timeout, e);
+        return ZooKeeperMode::Unknown;
     }
-    match stream.write(&SRVR_COMMAND) {
-        Ok(_) => {}
-        Err(e) => {
-            debug!("failed to write the srvr command: {}", e);
-            return ZooKeeperMode::Unknown;
-        }
+    if let Err(e) = stream.write(&SRVR_COMMAND) {
+        debug!("failed to write the srvr command: {}", e);
+        return ZooKeeperMode::Unknown;
     }
     let mut buffer = String::new();
-        match stream.read_to_string(&mut buffer) {
-            Ok(_) => {},
-            Err(e) => {
-                debug!("failed to read from the server: {}", e);
-                return ZooKeeperMode::Unknown;
-            }
-        };
+    if let Err(e) = stream.read_to_string(&mut buffer) {
+        debug!("failed to read from the server: {}", e);
+        return ZooKeeperMode::Unknown;
+    }
 
     lazy_static! {
         static ref MODE_RE: Regex = Regex::new(r"Mode: ([[:alpha:]]+)\r?\n").unwrap();
@@ -339,14 +329,11 @@ fn process_name(name: &str, ip_strategy: IpStrategy, nodes: &mut HashMap<SocketA
         let mode = get_zookeeper_mode(&socket_address);
         if mode == ZooKeeperMode::Standalone || mode == ZooKeeperMode::Leader {
             process::exit(0);
-        } else if mode == ZooKeeperMode::Follower {
-            match nodes.get(&socket_address.clone()) {
-                Some(_) => {}
-                None => {
-                    info!("node {} is {:?}", &socket_address, &mode);
-                    nodes.insert(socket_address.clone(), mode);
-                }
-            }
+        }
+        if mode == ZooKeeperMode::Follower &&
+            nodes.get(&socket_address.clone()).is_none() {
+            info!("node {} is {:?}", &socket_address, &mode);
+            nodes.insert(socket_address.clone(), mode);
         }
     }
 }
