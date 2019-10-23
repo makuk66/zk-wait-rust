@@ -357,7 +357,7 @@ fn main() {
         sleep(wait_duration);
     }
 
-    println!("Could not find a ZooKeeper leader or standalone");
+    println!("could not find a ZooKeeper leader or standalone");
     process::exit(2);
 }
 
