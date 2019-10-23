@@ -100,41 +100,37 @@ fn get_zookeeper_mode(address: &SocketAddr) -> ZooKeeperMode {
         }
     }
     let mut buffer = String::new();
-    loop {
         match stream.read_to_string(&mut buffer) {
-            Ok(_) => break,
+            Ok(_) => {},
             Err(e) => {
                 debug!("failed to read from the server: {}", e);
                 return ZooKeeperMode::Unknown;
             }
         };
-    }
 
     lazy_static! {
         static ref MODE_RE: Regex = Regex::new(r"Mode: ([[:alpha:]]+)\r?\n").unwrap();
     }
 
     match MODE_RE.captures(&buffer) {
-        Some(captures) => match captures.get(1) {
-            Some(matched) => {
-                let mode = matched.as_str();
-                debug!("{} is {:?}", address, mode);
+        Some(captures) => if let Some(matched) = captures.get(1) {
+            let mode = matched.as_str();
+            debug!("{} is {:?}", address, mode);
 
-                match mode.as_ref() {
-                    "leader" => return ZooKeeperMode::Leader,
-                    "follower" => return ZooKeeperMode::Follower,
-                    "standalone" => return ZooKeeperMode::Standalone,
-                    _ => return ZooKeeperMode::Unknown,
-                }
+            match mode {
+                "leader" => return ZooKeeperMode::Leader,
+                "follower" => return ZooKeeperMode::Follower,
+                "standalone" => return ZooKeeperMode::Standalone,
+                _ => return ZooKeeperMode::Unknown,
             }
-            None => {}
         },
         None => debug!("no Mode found in response"),
     }
-    return ZooKeeperMode::Unknown;
+
+    ZooKeeperMode::Unknown
 }
 
-fn parse_name(name_string: &str, ip_strategy: &IpStrategy) -> Vec<SocketAddr> {
+fn parse_name(name_string: &str, ip_strategy: IpStrategy) -> Vec<SocketAddr> {
     // Get a DNS resolver configured from the system, so /etc/resolv.conf gets used
     // I can't see a way of overriding the resolver options config::ResolverOpts::ip_strategy
     // afterwards, so we can to implement the
@@ -153,11 +149,11 @@ fn parse_name(name_string: &str, ip_strategy: &IpStrategy) -> Vec<SocketAddr> {
             Ok(a) => {
                 debug!("parsed SocketAddr address {}: {:?}", name, a);
                 if (a.is_ipv4()
-                    && (ip_strategy == &IpStrategy::Ipv4Only
-                        || ip_strategy == &IpStrategy::Ipv4thenIpv6))
+                    && (ip_strategy == IpStrategy::Ipv4Only
+                        || ip_strategy == IpStrategy::Ipv4thenIpv6))
                     || (a.is_ipv6()
-                        && (ip_strategy == &IpStrategy::Ipv6Only
-                            || ip_strategy == &IpStrategy::Ipv4thenIpv6))
+                        && (ip_strategy == IpStrategy::Ipv6Only
+                            || ip_strategy == IpStrategy::Ipv4thenIpv6))
                 {
                     address_list.push(a);
                 }
@@ -173,11 +169,11 @@ fn parse_name(name_string: &str, ip_strategy: &IpStrategy) -> Vec<SocketAddr> {
                 debug!("parsed IpAddr address {}: {:?}", name, a);
                 let sa = SocketAddr::new(a, ZOOKEEPER_CLIENT_PORT);
                 if (sa.is_ipv4()
-                    && (ip_strategy == &IpStrategy::Ipv4Only
-                        || ip_strategy == &IpStrategy::Ipv4thenIpv6))
+                    && (ip_strategy == IpStrategy::Ipv4Only
+                        || ip_strategy == IpStrategy::Ipv4thenIpv6))
                     || (sa.is_ipv6()
-                        && (ip_strategy == &IpStrategy::Ipv6Only
-                            || ip_strategy == &IpStrategy::Ipv4thenIpv6))
+                        && (ip_strategy == IpStrategy::Ipv6Only
+                            || ip_strategy == IpStrategy::Ipv4thenIpv6))
                 {
                     address_list.push(sa);
                 }
@@ -203,13 +199,13 @@ fn parse_name(name_string: &str, ip_strategy: &IpStrategy) -> Vec<SocketAddr> {
             }
         }
 
-        if ip_strategy == &IpStrategy::Ipv4Only || ip_strategy == &IpStrategy::Ipv4thenIpv6 {
+        if ip_strategy == IpStrategy::Ipv4Only || ip_strategy == IpStrategy::Ipv4thenIpv6 {
             debug!("ipv4 lookup for {}", &hostname);
             let lookup_result = resolver.ipv4_lookup(hostname);
             match lookup_result {
                 Ok(result) => {
                     for address in result.iter() {
-                        let socket_address = SocketAddr::new(IpAddr::V4(address.clone()), port);
+                        let socket_address = SocketAddr::new(IpAddr::V4(*address), port);
                         debug!("found {}", &socket_address);
                         address_list.push(socket_address);
                     }
@@ -217,13 +213,13 @@ fn parse_name(name_string: &str, ip_strategy: &IpStrategy) -> Vec<SocketAddr> {
                 Err(e) => debug!("ipv4 lookup failed for {}: {}", hostname, e),
             }
         }
-        if ip_strategy == &IpStrategy::Ipv6Only || ip_strategy == &IpStrategy::Ipv4thenIpv6 {
+        if ip_strategy == IpStrategy::Ipv6Only || ip_strategy == IpStrategy::Ipv4thenIpv6 {
             debug!("ipv6 lookup for {}", &hostname);
             let lookup_result = resolver.ipv6_lookup(hostname);
             match lookup_result {
                 Ok(result) => {
                     for address in result.iter() {
-                        let socket_address = SocketAddr::new(IpAddr::V6(address.clone()), port);
+                        let socket_address = SocketAddr::new(IpAddr::V6(*address), port);
                         debug!("found {}", &socket_address);
                         address_list.push(socket_address);
                     }
@@ -233,11 +229,11 @@ fn parse_name(name_string: &str, ip_strategy: &IpStrategy) -> Vec<SocketAddr> {
         }
     }
 
-    return address_list;
+    address_list
 }
 
 fn get_app<'a, 'b>() -> App<'a, 'b> {
-    return App::new("zk-wait-rust")
+    App::new("zk-wait-rust")
         .version("1.0")
         .about("Waits for things")
         .arg(
@@ -278,7 +274,7 @@ fn get_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
                 .help("Sets the level of verbosity"),
         )
-        .arg(Arg::with_name("name").multiple(false).takes_value(false));
+        .arg(Arg::with_name("name").multiple(false).takes_value(false))
 }
 
 fn main() {
@@ -343,7 +339,7 @@ fn main() {
         }
     }
 
-    if name.len() == 0 {
+    if name.is_empty() {
         error!("You must specify a name as command-line parameter or set ZK_HOST");
         process::exit(1);
     }
@@ -356,7 +352,7 @@ fn main() {
     while start_time.elapsed() < max_wait_duration {
         // we re-parse every time so that we repeat any DNS lookups,
         // as more IP addresses may have been added for names
-        let socket_addresses = parse_name(&name, &ip_strategy);
+        let socket_addresses = parse_name(&name, ip_strategy);
         if log_enabled!(Level::Debug) {
             debug!("adresses:");
             for socket_address in &socket_addresses {
