@@ -20,7 +20,7 @@ extern crate lazy_static;
 extern crate log;
 extern crate regex;
 
-use clap::{App, Arg};
+use clap::{App, Arg, ArgMatches};
 use log::Level;
 use parse_duration;
 use regex::Regex;
@@ -266,67 +266,44 @@ fn get_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
                 .help("Only use IPv6 addresses"),
         )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .long("verbose")
-                .multiple(true)
-                .takes_value(false)
-                .help("Sets the level of verbosity"),
-        )
         .arg(Arg::with_name("name").multiple(false).takes_value(false))
 }
 
-fn main() {
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "info")
-    }
-    env_logger::init();
-
-    let app = get_app();
-    let matches = app.get_matches();
-
-    let max_wait_duration;
-    let max_wait_string = matches.value_of("max-wait").unwrap();
-    match parse_duration::parse(&max_wait_string) {
-        Ok(v) => max_wait_duration = v,
+fn get_duration_arg(arg_matches: &ArgMatches, name: &str) -> Duration {
+    let arg_string = arg_matches.value_of(name).unwrap();
+    match parse_duration::parse(arg_string) {
+        Ok(v) => {
+            debug!("{} = {:?}", name, v);
+            v
+        },
         Err(e) => {
             error!(
-                "could not parse max-wait value '{:?}' as a duration: {}",
-                &max_wait_string, e
+                "could not parse {} value '{:?}' as a duration: {}",
+                name, &arg_string, e
             );
             process::exit(1);
         }
     }
-    debug!("max_wait_duration = {:?}", max_wait_duration);
+}
 
-    let wait_duration;
-    let wait_seconds_string = matches.value_of("wait-seconds").unwrap();
-    match parse_duration::parse(&wait_seconds_string) {
-        Ok(v) => wait_duration = v,
-        Err(e) => {
-            error!(
-                "could not parse wait-seconds value '{:?}' as a duration: {}",
-                &wait_seconds_string, e
-            );
-            process::exit(1);
-        }
-    }
-    debug!("wait_duration = {:?}", wait_duration);
+fn get_ip_strategy_arg(arg_matches: &ArgMatches) -> IpStrategy {
     let ip_strategy;
-    if matches.is_present("ipv4") && matches.is_present("ipv6") {
+    if arg_matches.is_present("ipv4") && arg_matches.is_present("ipv6") {
         ip_strategy = IpStrategy::Ipv4thenIpv6;
-    } else if matches.is_present("ipv4") {
+    } else if arg_matches.is_present("ipv4") {
         ip_strategy = IpStrategy::Ipv4Only;
-    } else if matches.is_present("ipv6") {
+    } else if arg_matches.is_present("ipv6") {
         ip_strategy = IpStrategy::Ipv6Only;
     } else {
         ip_strategy = IpStrategy::Ipv4thenIpv6;
     }
     debug!("ip_strategy = {:?}", ip_strategy);
+    ip_strategy
+}
 
+fn get_name_arg(arg_matches: &ArgMatches) -> std::string::String {
     let mut name = String::new();
-    match matches.value_of("name") {
+    match arg_matches.value_of("name") {
         Some(n) => {
             name = n.to_string();
         }
@@ -344,36 +321,55 @@ fn main() {
         process::exit(1);
     }
     info!("Looking for {}", &name);
+    name
+}
 
-    let start_time = Instant::now();
-
-    let mut nodes = HashMap::new();
-
-    while start_time.elapsed() < max_wait_duration {
-        // we re-parse every time so that we repeat any DNS lookups,
-        // as more IP addresses may have been added for names
-        let socket_addresses = parse_name(&name, ip_strategy);
-        if log_enabled!(Level::Debug) {
-            debug!("adresses:");
-            for socket_address in &socket_addresses {
-                debug!("  {:?}", &socket_address);
-            }
-        }
-
+fn process_name(name: &str, ip_strategy: IpStrategy, nodes: &mut HashMap<SocketAddr, ZooKeeperMode>) {
+    // we re-parse every time so that we repeat any DNS lookups,
+    // as more IP addresses may have been added for names
+    let socket_addresses = parse_name(&name, ip_strategy);
+    if log_enabled!(Level::Debug) {
+        debug!("adresses:");
         for socket_address in &socket_addresses {
-            let mode = get_zookeeper_mode(&socket_address);
-            if mode == ZooKeeperMode::Standalone || mode == ZooKeeperMode::Leader {
-                process::exit(0);
-            } else if mode == ZooKeeperMode::Follower {
-                match nodes.get(&socket_address.clone()) {
-                    Some(_) => {}
-                    None => {
-                        info!("node {} is {:?}", &socket_address, &mode);
-                        nodes.insert(socket_address.clone(), mode);
-                    }
+            debug!("  {:?}", &socket_address);
+        }
+    }
+
+    for socket_address in &socket_addresses {
+        let mode = get_zookeeper_mode(&socket_address);
+        if mode == ZooKeeperMode::Standalone || mode == ZooKeeperMode::Leader {
+            process::exit(0);
+        } else if mode == ZooKeeperMode::Follower {
+            match nodes.get(&socket_address.clone()) {
+                Some(_) => {}
+                None => {
+                    info!("node {} is {:?}", &socket_address, &mode);
+                    nodes.insert(socket_address.clone(), mode);
                 }
             }
         }
+    }
+}
+
+fn main() {
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info")
+    }
+    env_logger::init();
+
+    let matches = get_app().get_matches();
+
+    let max_wait_duration = get_duration_arg(&matches, "max-wait");
+    let wait_duration = get_duration_arg(&matches, "wait-seconds");
+    let ip_strategy = get_ip_strategy_arg(&matches);
+    let name = get_name_arg(&matches);
+
+    let start_time = Instant::now();
+    let mut nodes: HashMap<SocketAddr, ZooKeeperMode> = HashMap::new();
+
+    while start_time.elapsed() < max_wait_duration {
+        process_name(&name, ip_strategy, &mut nodes);
+
         debug!("sleeping for {:?}", wait_duration);
         sleep(wait_duration);
     }
