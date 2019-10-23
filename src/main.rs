@@ -67,19 +67,28 @@ fn get_zookeeper_mode(address: &SocketAddr) -> Result<ZooKeeperMode, String> {
     match TcpStream::connect_timeout(address, connect_timeout) {
         Ok(s) => {
             stream = s;
-        },
+        }
         Err(e) => {
-            return Err(format!("Failed to connect to {} in {:?}: {}", &address, &connect_timeout, e));
+            return Err(format!(
+                "Failed to connect to {} in {:?}: {}",
+                &address, &connect_timeout, e
+            ));
         }
     }
     // set read/write timeouts so that we don't get hung up by one stuck server
     let write_timeout = Duration::new(WRITE_TIMEOUT_SECONDS, 0);
     if let Err(e) = stream.set_write_timeout(Some(write_timeout)) {
-        return Err(format!("failed to set write timeout to {:?}: {}", &write_timeout, e));
+        return Err(format!(
+            "failed to set write timeout to {:?}: {}",
+            &write_timeout, e
+        ));
     }
     let read_timeout = Duration::new(READ_TIMEOUT_SECONDS, 0);
     if let Err(e) = stream.set_read_timeout(Some(read_timeout)) {
-        return Err(format!("failed to set read timeout to {:?}: {}", &read_timeout, e));
+        return Err(format!(
+            "failed to set read timeout to {:?}: {}",
+            &read_timeout, e
+        ));
     }
     if let Err(e) = stream.write(&SRVR_COMMAND) {
         return Err(format!("failed to write the srvr command: {}", e));
@@ -103,7 +112,7 @@ fn get_zookeeper_mode(address: &SocketAddr) -> Result<ZooKeeperMode, String> {
                 "standalone" => Ok(ZooKeeperMode::Standalone),
                 _ => Err(format!("unknown mode {}", matched.as_str())),
             }
-        },
+        }
         None => Err("no Mode found in response".to_string()),
     }
 }
@@ -253,7 +262,7 @@ fn get_duration_arg(arg_matches: &ArgMatches, name: &str) -> Duration {
         Ok(v) => {
             debug!("{} = {:?}", name, v);
             v
-        },
+        }
         Err(e) => {
             error!(
                 "could not parse {} value '{:?}' as a duration: {}",
@@ -302,7 +311,11 @@ fn get_name_arg(arg_matches: &ArgMatches) -> std::string::String {
     name
 }
 
-fn process_name(name: &str, ip_strategy: IpStrategy, nodes: &mut HashMap<SocketAddr, ZooKeeperMode>) {
+fn process_name(
+    name: &str,
+    ip_strategy: IpStrategy,
+    nodes: &mut HashMap<SocketAddr, ZooKeeperMode>,
+) {
     // we re-parse every time so that we repeat any DNS lookups,
     // as more IP addresses may have been added for names
     let socket_addresses = parse_name(&name, ip_strategy);
@@ -316,17 +329,19 @@ fn process_name(name: &str, ip_strategy: IpStrategy, nodes: &mut HashMap<SocketA
     for socket_address in &socket_addresses {
         match get_zookeeper_mode(&socket_address) {
             Ok(mode) => {
+                info!("node {} is {:?}", &socket_address, &mode);
                 if mode == ZooKeeperMode::Standalone || mode == ZooKeeperMode::Leader {
                     process::exit(0);
                 }
-                if mode == ZooKeeperMode::Follower &&
-                    nodes.get(&socket_address.clone()).is_none() {
-                    info!("node {} is {:?}", &socket_address, &mode);
+                if nodes.get(&socket_address.clone()).is_none() {
                     nodes.insert(socket_address.clone(), mode);
                 }
-            },
+            }
             Err(e) => {
-                debug!("Could not get ZooKeeper mode: {}", e);
+                debug!(
+                    "Could not get ZooKeeper mode for {:?}: {}",
+                    &socket_address, e
+                );
             }
         }
     }
