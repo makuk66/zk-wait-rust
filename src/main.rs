@@ -282,6 +282,9 @@ fn get_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 fn main() {
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info")
+    }
     env_logger::init();
 
     let app = get_app();
