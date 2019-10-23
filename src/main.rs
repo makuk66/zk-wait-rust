@@ -316,16 +316,12 @@ fn main() {
     debug!("wait_duration = {:?}", wait_duration);
     let ip_strategy;
     if matches.is_present("ipv4") && matches.is_present("ipv6") {
-        debug!("both");
         ip_strategy = IpStrategy::Ipv4thenIpv6;
     } else if matches.is_present("ipv4") {
-        debug!("4");
         ip_strategy = IpStrategy::Ipv4Only;
     } else if matches.is_present("ipv6") {
-        debug!("6");
         ip_strategy = IpStrategy::Ipv6Only;
     } else {
-        debug!("default");
         ip_strategy = IpStrategy::Ipv4thenIpv6;
     }
     debug!("ip_strategy = {:?}", ip_strategy);
