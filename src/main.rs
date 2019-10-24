@@ -27,8 +27,6 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::env;
 use std::io::prelude::*;
-use std::net::IpAddr;
-use std::net::TcpStream;
 use std::net::*;
 use std::process;
 use std::thread::sleep;
@@ -200,6 +198,7 @@ fn parse_name(name_string: &str, ip_strategy: IpStrategy) -> Vec<SocketAddr> {
                 Err(e) => debug!("ipv4 lookup failed for {}: {}", hostname, e),
             }
         }
+
         if ip_strategy == IpStrategy::Ipv6Only || ip_strategy == IpStrategy::Ipv4thenIpv6 {
             debug!("ipv6 lookup for {}", &hostname);
             let lookup_result = resolver.ipv6_lookup(hostname);
@@ -290,15 +289,11 @@ fn get_ip_strategy_arg(arg_matches: &ArgMatches) -> IpStrategy {
 
 fn get_name_arg(arg_matches: &ArgMatches) -> std::string::String {
     match arg_matches.value_of("name") {
-        Some(name) => {
-            name.to_string()
-        }
-        None => {
-            env::var("ZK_HOST").unwrap_or_else(|_e| {
-                error!("You must specify a name as command-line parameter or set ZK_HOST");
-                process::exit(1);
-            })
-        }
+        Some(name) => name.to_string(),
+        None => env::var("ZK_HOST").unwrap_or_else(|_e| {
+            error!("You must specify a name as command-line parameter or set ZK_HOST");
+            process::exit(1);
+        }),
     }
 }
 
@@ -364,4 +359,127 @@ fn main() {
 
     println!("Could not find a ZooKeeper leader or standalone");
     process::exit(2);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_ipv4_single() {
+        assert_eq!(
+            parse_name("127.0.0.1", IpStrategy::Ipv4Only).first(),
+            Some(&SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                2181
+            ))
+        );
+
+        assert_eq!(
+            parse_name("127.0.0.1:9999", IpStrategy::Ipv4Only).first(),
+            Some(&SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                9999
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_ipv4_multiple() {
+        let addresses = parse_name("127.0.0.1,127.0.0.2", IpStrategy::Ipv4Only);
+        assert!(addresses.len() == 2);
+        assert_eq!(
+            addresses.first(),
+            Some(&SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                2181
+            ))
+        );
+        assert_eq!(
+            addresses.get(1),
+            Some(&SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2)),
+                2181
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_ipv6_single() {
+        assert_eq!(
+            parse_name("::1", IpStrategy::Ipv6Only).first(),
+            Some(&SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                2181
+            ))
+        );
+
+        assert_eq!(
+            parse_name("[::1]:9999", IpStrategy::Ipv6Only).first(),
+            Some(&SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                9999
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_ipv6_multiple() {
+        let addresses = parse_name("::1,::2", IpStrategy::Ipv6Only);
+        assert!(addresses.len() == 2);
+        assert_eq!(
+            addresses.first(),
+            Some(&SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                2181
+            ))
+        );
+        assert_eq!(
+            addresses.get(1),
+            Some(&SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 2)),
+                2181
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_mixed() {
+        let addresses = parse_name("::1,127.0.0.1,www.example.com", IpStrategy::Ipv4thenIpv6);
+        assert!(addresses.len() > 2);
+        assert_eq!(
+            addresses.first(),
+            Some(&SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                2181
+            ))
+        );
+        assert_eq!(
+            addresses.get(1),
+            Some(&SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                2181
+            ))
+        );
+    }
+
+    #[test]
+    fn test_dns() {
+        // these make remote lookups
+        assert!(!parse_name("www.example.com", IpStrategy::Ipv4thenIpv6).is_empty());
+        let addresses = parse_name("www.example.com:9999", IpStrategy::Ipv4thenIpv6);
+        assert!(addresses.len() > 0);
+        for address in addresses {
+            assert_eq!(address.port(), 9999);
+        }
+    }
+
+    #[test]
+    fn test_parse_strategy() {
+        assert!(parse_name("127.0.0.1", IpStrategy::Ipv6Only).is_empty());
+        assert!(parse_name("::1", IpStrategy::Ipv4Only).is_empty());
+        assert!(parse_name("127.0.0.1", IpStrategy::Ipv4Only).len() == 1);
+        assert!(parse_name("::1", IpStrategy::Ipv6Only).len() == 1);
+        assert!(parse_name("127.0.0.1,::1", IpStrategy::Ipv4thenIpv6).len() == 2);
+    }
 }
